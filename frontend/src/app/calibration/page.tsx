@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import CalibrationChart from "@/components/CalibrationChart";
-import type { CalibrationResult } from "@/lib/types";
+import type { CalibrationResult, MarketTypeFilter } from "@/lib/types";
 
 export default function CalibrationPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [category, setCategory] = useState<string>("");
+  const [marketType, setMarketType] = useState<MarketTypeFilter>("all");
   const [hours, setHours] = useState(24);
   const [data, setData] = useState<CalibrationResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export default function CalibrationPage() {
     const ctrl = new AbortController();
     setLoading(true);
     setErr(null);
-    const qs = new URLSearchParams({ hoursBeforeExpiration: String(hours) });
+    const qs = new URLSearchParams({ hoursBeforeExpiration: String(hours), marketType });
     if (category) qs.set("category", category);
     fetch(`/api/calibration?${qs}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -33,7 +34,7 @@ export default function CalibrationPage() {
       })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
-  }, [category, hours]);
+  }, [category, hours, marketType]);
 
   return (
     <>
@@ -41,7 +42,8 @@ export default function CalibrationPage() {
       <p className="muted" style={{ maxWidth: 720 }}>
         Resolved markets bucketed by their market-implied P(yes) at a fixed lead time before
         expiration, plotted as predicted probability vs. observed outcome frequency. Points on the
-        dashed diagonal mean the market priced that bucket correctly.
+        dashed diagonal mean the market priced that bucket correctly. For grouped (multi-outcome)
+        markets the price is normalized by the group&rsquo;s pool so each event sums to 1.
       </p>
 
       <div className="controls">
@@ -52,6 +54,14 @@ export default function CalibrationPage() {
             {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
+          </select>
+        </label>
+        <label>
+          market type{" "}
+          <select value={marketType} onChange={(e) => setMarketType(e.target.value as MarketTypeFilter)}>
+            <option value="all">all</option>
+            <option value="standalone">standalone only</option>
+            <option value="group">group children only</option>
           </select>
         </label>
         <label>

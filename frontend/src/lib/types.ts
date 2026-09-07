@@ -14,6 +14,7 @@ export interface MarketRow {
   title: string;
   categories: string[];
   market_type: string | null;
+  group_slug: string | null;
   expiration: string | null;
   first_seen: string | null;
   last_price: number | null;
@@ -60,8 +61,11 @@ export interface CalibrationBin {
   actual_freq: number;
 }
 
+export type MarketTypeFilter = "all" | "standalone" | "group";
+
 export interface CalibrationResult {
   category: string | null;
+  marketType: MarketTypeFilter;
   hoursBeforeExpiration: number;
   matchToleranceHours: number;
   minBinSize: number;

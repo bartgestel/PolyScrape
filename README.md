@@ -150,19 +150,25 @@ Dockerfile, no shared code with the collector, `pg` pool pinned to
   categories).
 - **Market browser** (`/markets`, optional `?category=`) — filterable/sortable
   table (text, category, resolved state); row → detail; `↗` opens the market on
-  Limitless.
+  Limitless. Multi-outcome (group / NegRisk) markets — soccer 3-ways, "winner"
+  markets, dated "by …?" markets — collapse to one expandable row per event
+  showing the favourite; expand to see each child leg.
 - **Market detail** (`/markets/<slug>`) — `price_yes` line chart over the snapshot
   history; if resolved, a marker at the resolution time plus the winning outcome
   next to the final market price. Spread + volume in a companion chart.
 - **Calibration** (`/calibration`) — resolved markets bucketed by market-implied
   P(yes) at a configurable lead time before **expiration** (default 24h), plotted
   as predicted probability vs. actual outcome frequency against the diagonal.
-  Optional category filter. Ten 0.1-wide bins; snapshot matched within ±3h; bins
-  with <5 markets hidden. "Yes" = `winning_outcome_index = 0`.
+  Ten 0.1-wide bins; snapshot matched within ±3h; bins with <5 markets hidden.
+  "Yes" = `winning_outcome_index = 0`. Filters: **category**, and **market type**
+  (all / standalone / group-children) so 3-way legs don't contaminate binary
+  calibration. For group markets the predicted probability is normalized by the
+  group's pool (child price ÷ sum of the group's children prices at that
+  snapshot) so each event sums to 1 and the overround is removed.
 
 **API** (read-only JSON): `GET /api/overview`, `/api/categories`,
 `/api/markets?category=`, `/api/markets/:slug/snapshots`,
-`/api/calibration?category=&hoursBeforeExpiration=`.
+`/api/calibration?category=&hoursBeforeExpiration=&marketType=all|standalone|group`.
 
 ### Local dev
 

@@ -4,6 +4,7 @@ import {
   CalibrationResult,
   MarketDetail,
   MarketRow,
+  MarketTypeFilter,
   OverviewSummary,
   Snapshot,
 } from "./types";
@@ -55,7 +56,7 @@ export async function getCategories(): Promise<string[]> {
 export async function getMarkets(category: string | null): Promise<MarketRow[]> {
   const rows = await q<MarketRow & { last_price: string | null }>(
     `
-    SELECT m.slug, m.title, m.categories, m.market_type, m.expiration, m.first_seen,
+    SELECT m.slug, m.title, m.categories, m.market_type, m.group_slug, m.expiration, m.first_seen,
            s.price_yes AS last_price, s.ts AS last_ts,
            r.winning_outcome, r.winning_outcome_index, r.resolved_at
     FROM markets m
@@ -125,37 +126,55 @@ const TOLERANCE_HOURS = 3;
 export async function getCalibration(
   category: string | null,
   hoursBeforeExpiration: number,
+  marketType: MarketTypeFilter = "all",
 ): Promise<CalibrationResult> {
   const hb =
     Number.isFinite(hoursBeforeExpiration) && hoursBeforeExpiration >= 0 ? hoursBeforeExpiration : 24;
 
-  const catFilter = category ? "AND $3 = ANY(m.categories)" : "";
   const params: unknown[] = [String(hb), TOLERANCE_HOURS];
-  if (category) params.push(category);
+  const catFilter = category ? `AND $${params.push(category)} = ANY(m.categories)` : "";
+  const typeFilter =
+    marketType === "standalone" ? "AND m.group_slug IS NULL" :
+    marketType === "group" ? "AND m.group_slug IS NOT NULL" : "";
 
+  // For group markets the predicted probability is the child's price divided by
+  // the sum of the group's children prices at the same snapshot (all markets in
+  // a cycle share one ts), so each event's pool sums to 1 and the overround is
+  // removed. Standalone markets use price_yes directly.
   const rows = await q<{ bin: number; n: number; predicted_mean: number; actual_freq: number }>(
     `
     WITH picked AS (
-      SELECT r.slug,
+      SELECT r.slug, m.group_slug,
              (r.winning_outcome_index = 0) AS actual_yes,
-             s.price_yes AS predicted
+             s.price_yes, s.ts AS pick_ts
       FROM resolutions r
       JOIN markets m ON m.slug = r.slug
       JOIN LATERAL (
-        SELECT ss.price_yes,
+        SELECT ss.price_yes, ss.ts,
                abs(extract(epoch FROM (ss.ts - (m.expiration - ($1 || ' hours')::interval)))) AS dist_s
         FROM snapshots ss
         WHERE ss.slug = r.slug AND ss.price_yes IS NOT NULL
         ORDER BY dist_s ASC
         LIMIT 1
       ) s ON s.dist_s <= $2 * 3600
-      WHERE m.expiration IS NOT NULL ${catFilter}
+      WHERE m.expiration IS NOT NULL ${catFilter} ${typeFilter}
+    ),
+    normed AS (
+      SELECT p.actual_yes,
+             CASE WHEN p.group_slug IS NULL THEN p.price_yes
+                  ELSE p.price_yes / NULLIF((
+                    SELECT sum(ss.price_yes)
+                    FROM markets m2 JOIN snapshots ss ON ss.slug = m2.slug AND ss.ts = p.pick_ts
+                    WHERE m2.group_slug = p.group_slug
+                  ), 0)
+             END AS predicted
+      FROM picked p
     ),
     binned AS (
       SELECT LEAST(width_bucket(predicted, 0, 1, 10), 10) AS bin,
              predicted,
              CASE WHEN actual_yes THEN 1.0 ELSE 0.0 END AS actual
-      FROM picked
+      FROM normed
       WHERE predicted >= 0 AND predicted <= 1
     )
     SELECT bin, count(*)::int AS n, avg(predicted)::float AS predicted_mean, avg(actual)::float AS actual_freq
@@ -164,11 +183,14 @@ export async function getCalibration(
     params,
   );
 
+  const rparams: unknown[] = [];
+  const rcat = category ? `AND $${rparams.push(category)} = ANY(m.categories)` : "";
+  const rtype =
+    marketType === "standalone" ? "AND m.group_slug IS NULL" :
+    marketType === "group" ? "AND m.group_slug IS NOT NULL" : "";
   const [{ resolved }] = await q<{ resolved: string }>(
-    category
-      ? `SELECT count(*) AS resolved FROM resolutions r JOIN markets m ON m.slug = r.slug WHERE $1 = ANY(m.categories)`
-      : `SELECT count(*) AS resolved FROM resolutions`,
-    category ? [category] : [],
+    `SELECT count(*) AS resolved FROM resolutions r JOIN markets m ON m.slug = r.slug WHERE true ${rcat} ${rtype}`,
+    rparams,
   );
 
   const matchedMarkets = rows.reduce((a, r) => a + r.n, 0);
@@ -183,6 +205,7 @@ export async function getCalibration(
 
   return {
     category,
+    marketType,
     hoursBeforeExpiration: hb,
     matchToleranceHours: TOLERANCE_HOURS,
     minBinSize: MIN_BIN,

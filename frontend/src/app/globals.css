@@ -58,6 +58,12 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .pill.resolved { color: var(--good); border-color: #21402a; background: #12251a; }
 .pill.pending { color: var(--muted); }
 
+tr.group-row { cursor: pointer; }
+tr.group-row:hover { background: #1d212a; }
+tr.group-row .caret { color: var(--muted); display: inline-block; width: 12px; }
+tr.child-row td { border-bottom: 1px solid #1e222b; background: #14171d; }
+td.indent { padding-left: 30px; }
+
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
 .muted { color: var(--muted); }
 .kv { display: grid; grid-template-columns: 160px 1fr; gap: 6px 14px; font-size: 13px; }

@@ -1,0 +1,23 @@
+{
+  "name": "polyscrape",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only Polymarket market-data collector (sports + weather) for later backtesting.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "migrate": "tsx src/db/migrate.ts",
+    "test": "node --test --import tsx --import ./test/_setup.ts 'test/*.test.ts'"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: polyscrape
+      POSTGRES_PASSWORD: polyscrape
+      POSTGRES_DB: polyscrape
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polyscrape"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  collector:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://polyscrape:polyscrape@db:5432/polyscrape
+      SNAPSHOT_INTERVAL_MINUTES: "2"
+      DISCOVERY_INTERVAL_HOURS: "3"
+      RESOLUTION_CHECK_INTERVAL_MINUTES: "20"
+      LOG_LEVEL: info
+      HEALTH_PORT: "8080"
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://polyscrape:polyscrape@db:5432/polyscrape
+    # Direct host access for debugging; Nginx Proxy Manager reaches it via the
+    # proxy-net network as http://frontend:3000 and needs no published port.
+    ports:
+      - "${FRONTEND_PORT:-8081}:3000"
+    networks:
+      - default
+      - proxy-net
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/overview').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+volumes:
+  pgdata:
+
+networks:
+  default:
+  # Shared with the Nginx Proxy Manager stack. Create once on the VPS:
+  #   docker network create proxy-net
+  proxy-net:
+    external: true

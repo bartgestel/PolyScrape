@@ -1,7 +1,6 @@
 // Entrypoint: run migrations, then three interval loops (discovery, snapshot,
-// resolution) over every category. setInterval, no job queue.
+// resolution) against Limitless Exchange. setInterval, no job queue.
 
-import { CATEGORIES } from "./categories";
 import { runDiscovery, runResolution, runSnapshot } from "./collector";
 import { config } from "./config";
 import { pool } from "./db";
@@ -11,7 +10,7 @@ import { logger } from "./logger";
 
 const MIN = 60_000;
 
-/** Run an async job now and then every `everyMs`, never overlapping, never throwing out. */
+/** Run an async job now and every `everyMs`, never overlapping, never throwing out. */
 function schedule(name: string, everyMs: number, job: () => Promise<void>, runNow = true): void {
   let running = false;
   const tick = async () => {
@@ -38,34 +37,20 @@ async function main() {
   await runMigrations();
   startHealthServer();
 
-  // Seed the market tables once before the polling loops start.
-  for (const cat of CATEGORIES) {
-    try {
-      await runDiscovery(cat);
-    } catch (err) {
-      logger.error("initial discovery failed", { category: cat.name, err });
-    }
+  try {
+    await runDiscovery();
+  } catch (err) {
+    logger.error("initial discovery failed", { err });
   }
 
-  schedule(
-    "discovery",
-    config.discoveryIntervalHours * 60 * MIN,
-    async () => {
-      for (const cat of CATEGORIES) await runDiscovery(cat);
-    },
-    false, // already seeded above
-  );
+  schedule("discovery", config.discoveryIntervalHours * 60 * MIN, () => runDiscovery().then(() => undefined), false);
 
   schedule("snapshot", config.snapshotIntervalMinutes * MIN, async () => {
-    let total = 0;
-    for (const cat of CATEGORIES) total += await runSnapshot(cat);
+    await runSnapshot();
     markSnapshotOk();
-    logger.info("snapshot cycle complete", { total });
   });
 
-  schedule("resolution", config.resolutionCheckIntervalMinutes * MIN, async () => {
-    for (const cat of CATEGORIES) await runResolution(cat);
-  });
+  schedule("resolution", config.resolutionCheckIntervalMinutes * MIN, () => runResolution().then(() => undefined));
 }
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

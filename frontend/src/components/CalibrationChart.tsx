@@ -15,13 +15,12 @@ import type { CalibrationBin } from "@/lib/types";
 
 export default function CalibrationChart({ bins }: { bins: CalibrationBin[] }) {
   if (bins.length === 0) {
-    return <p className="muted">Not enough resolved markets yet to fill any bin (need ≥5 per bin).</p>;
+    return <p className="muted">Not enough resolved markets yet to fill a bin (need ≥5 per bin).</p>;
   }
   const data = bins.map((b) => ({
     x: b.predicted_mean,
     y: b.actual_freq,
     n: b.n,
-    bin: `${((b.bin_mid - 0.05) * 100).toFixed(0)}–${((b.bin_mid + 0.05) * 100).toFixed(0)}%`,
   }));
 
   return (
@@ -48,18 +47,8 @@ export default function CalibrationChart({ bins }: { bins: CalibrationBin[] }) {
             label={{ value: "actual frequency", angle: -90, position: "insideLeft", fill: "#9aa4b2", fontSize: 12 }}
           />
           <ZAxis type="number" dataKey="n" range={[40, 400]} name="markets" />
-          <ReferenceLine
-            segment={[
-              { x: 0, y: 0 },
-              { x: 1, y: 1 },
-            ]}
-            stroke="#6b7280"
-            strokeDasharray="5 4"
-          />
-          <Tooltip
-            cursor={{ strokeDasharray: "3 3" }}
-            contentStyle={{ background: "#171a21", border: "1px solid #2a2f3a" }}
-          />
+          <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="#6b7280" strokeDasharray="5 4" />
+          <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={{ background: "#171a21", border: "1px solid #2a2f3a" }} />
           <Scatter data={data} fill="#4f9cf9" isAnimationActive={false} />
         </ScatterChart>
       </ResponsiveContainer>

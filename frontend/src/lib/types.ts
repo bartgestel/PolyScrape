@@ -1,74 +1,68 @@
-export type Category = "sports" | "weather";
-
-export function isCategory(v: string | null | undefined): v is Category {
-  return v === "sports" || v === "weather";
+export function limitlessUrl(slug: string | null | undefined): string | null {
+  return slug ? `https://limitless.exchange/markets/${slug}` : null;
 }
 
-export function polymarketUrl(eventSlug: string | null | undefined): string | null {
-  return eventSlug ? `https://polymarket.com/event/${eventSlug}` : null;
-}
-
-export interface OverviewRow {
-  category: Category;
-  tracked: number;
+export interface OverviewSummary {
+  totalMarkets: number;
   resolved: number;
   pending: number;
+  byCategory: { category: string; tracked: number; resolved: number }[];
 }
 
 export interface MarketRow {
-  market_id: string;
-  question: string;
-  event_slug: string | null;
-  resolves_at: string | null;
+  slug: string;
+  title: string;
+  categories: string[];
+  market_type: string | null;
+  expiration: string | null;
+  first_seen: string | null;
   last_price: number | null;
   last_ts: string | null;
-  outcome: string | null;
+  winning_outcome: string | null;
+  winning_outcome_index: number | null;
   resolved_at: string | null;
-  // sports
-  sport?: string | null;
-  home_team?: string | null;
-  away_team?: string | null;
-  game_start_time?: string | null;
-  // weather
-  location?: string | null;
-  metric?: string | null;
-  threshold?: number | null;
 }
 
 export interface Snapshot {
   ts: string;
   price_yes: number | null;
   price_no: number | null;
+  midpoint: number | null;
+  best_bid: number | null;
+  best_ask: number | null;
   spread: number | null;
-  volume_24h: number | null;
+  last_trade_price: number | null;
+  volume: number | null;
   book_depth: number | null;
-  minutes_to_game_start?: number | null;
+  minutes_to_expiration: number | null;
 }
 
 export interface MarketDetail {
-  category: Category;
-  market: MarketRow;
+  market: MarketRow & {
+    condition_id: string | null;
+    trade_type: string | null;
+    group_slug: string | null;
+    source_created_at: string | null;
+  };
   snapshots: Snapshot[];
-  resolution:
-    | {
-        resolved_at: string | null;
-        outcome: string | null;
-        final_score?: string | null;
-        actual_measured_value?: number | null;
-      }
-    | null;
+  resolution: {
+    resolved_at: string | null;
+    winning_outcome: string | null;
+    winning_outcome_index: number | null;
+    status: string | null;
+  } | null;
 }
 
 export interface CalibrationBin {
-  bin_mid: number; // 0.05, 0.15, ... 0.95
+  bin_mid: number;
   n: number;
   predicted_mean: number;
   actual_freq: number;
 }
 
 export interface CalibrationResult {
-  category: Category;
-  hoursBeforeResolution: number;
+  category: string | null;
+  hoursBeforeExpiration: number;
   matchToleranceHours: number;
   minBinSize: number;
   resolvedMarkets: number;

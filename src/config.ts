@@ -14,14 +14,22 @@ if (!process.env.DATABASE_URL) {
 
 export const config = {
   databaseUrl: process.env.DATABASE_URL,
-  clobHost: process.env.POLYMARKET_CLOB_HOST || "https://clob.polymarket.com",
-  gammaHost: process.env.POLYMARKET_GAMMA_HOST || "https://gamma-api.polymarket.com",
+  limitlessApiHost: process.env.LIMITLESS_API_HOST || "https://api.limitless.exchange",
   snapshotIntervalMinutes: num("SNAPSHOT_INTERVAL_MINUTES", 2),
   discoveryIntervalHours: num("DISCOVERY_INTERVAL_HOURS", 3),
   resolutionCheckIntervalMinutes: num("RESOLUTION_CHECK_INTERVAL_MINUTES", 20),
+  // Skip markets expiring within this many minutes of discovery. Limitless has
+  // heavy sub-hour crypto churn (5-min / 15-min markets) that never live long
+  // enough for useful price history; 0 tracks absolutely everything.
+  minMarketMinutes: num("MIN_MARKET_MINUTES", 30),
+  // Per snapshot cycle, fetch the order book (spread / depth / midpoint) for at
+  // most this many markets, soonest-to-expire first. Price/volume come from the
+  // bulk list for every market regardless. 0 disables order-book polling.
+  orderbookLimit: num("ORDERBOOK_LIMIT", 100),
   logLevel: (process.env.LOG_LEVEL || "info").toLowerCase(),
   healthPort: num("HEALTH_PORT", 8080),
-  // ponytail: fixed concurrency cap for outbound API calls. Bump if the snapshot
-  // cycle can't finish inside SNAPSHOT_INTERVAL_MINUTES at your market count.
-  httpConcurrency: num("HTTP_CONCURRENCY", 8),
+  httpConcurrency: num("HTTP_CONCURRENCY", 4),
+  // Process-wide cap on outbound requests/sec to the Limitless API (Cloudflare
+  // 429s bursts). Keep low.
+  limitlessRps: num("LIMITLESS_RPS", 6),
 };

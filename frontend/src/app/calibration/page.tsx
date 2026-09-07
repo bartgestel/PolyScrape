@@ -2,20 +2,30 @@
 
 import { useEffect, useState } from "react";
 import CalibrationChart from "@/components/CalibrationChart";
-import type { CalibrationResult, Category } from "@/lib/types";
+import type { CalibrationResult } from "@/lib/types";
 
 export default function CalibrationPage() {
-  const [category, setCategory] = useState<Category>("sports");
+  const [categories, setCategories] = useState<string[]>([]);
+  const [category, setCategory] = useState<string>("");
   const [hours, setHours] = useState(24);
   const [data, setData] = useState<CalibrationResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    fetch("/api/categories")
+      .then((r) => r.json())
+      .then((c: string[]) => setCategories(c))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const ctrl = new AbortController();
     setLoading(true);
     setErr(null);
-    fetch(`/api/calibration?category=${category}&hoursBeforeResolution=${hours}`, { signal: ctrl.signal })
+    const qs = new URLSearchParams({ hoursBeforeExpiration: String(hours) });
+    if (category) qs.set("category", category);
+    fetch(`/api/calibration?${qs}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: CalibrationResult) => setData(d))
       .catch((e) => {
@@ -29,21 +39,23 @@ export default function CalibrationPage() {
     <>
       <h1>Calibration</h1>
       <p className="muted" style={{ maxWidth: 720 }}>
-        Resolved markets are bucketed by their market-implied P(yes) at a fixed lead time before
-        resolution, then plotted as predicted probability vs. observed outcome frequency. Points on
-        the dashed diagonal mean the market priced that bucket correctly.
+        Resolved markets bucketed by their market-implied P(yes) at a fixed lead time before
+        expiration, plotted as predicted probability vs. observed outcome frequency. Points on the
+        dashed diagonal mean the market priced that bucket correctly.
       </p>
 
       <div className="controls">
         <label>
           category{" "}
-          <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>
-            <option value="sports">sports</option>
-            <option value="weather">weather</option>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">all</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
           </select>
         </label>
         <label>
-          hours before resolution{" "}
+          hours before expiration{" "}
           <input
             type="number"
             min={0}
@@ -61,9 +73,9 @@ export default function CalibrationPage() {
       {data && (
         <>
           <p className="muted">
-            {data.resolvedMarkets.toLocaleString()} resolved · {data.matchedMarkets.toLocaleString()} had a
-            snapshot within ±{data.matchToleranceHours}h of the lead time · bins with &lt;{data.minBinSize}{" "}
-            markets hidden
+            {data.resolvedMarkets.toLocaleString()} resolved{data.category ? ` in ${data.category}` : ""} ·{" "}
+            {data.matchedMarkets.toLocaleString()} had a snapshot within ±{data.matchToleranceHours}h of the
+            lead time · bins with &lt;{data.minBinSize} markets hidden
           </p>
           <CalibrationChart bins={data.bins} />
           <h2>Bins</h2>
@@ -79,9 +91,7 @@ export default function CalibrationPage() {
             <tbody>
               {data.bins.map((b) => (
                 <tr key={b.bin_mid}>
-                  <td>
-                    {((b.bin_mid - 0.05) * 100).toFixed(0)}–{((b.bin_mid + 0.05) * 100).toFixed(0)}%
-                  </td>
+                  <td>{((b.bin_mid - 0.05) * 100).toFixed(0)}–{((b.bin_mid + 0.05) * 100).toFixed(0)}%</td>
                   <td className="num">{b.n}</td>
                   <td className="num">{b.predicted_mean.toFixed(3)}</td>
                   <td className="num">{b.actual_freq.toFixed(3)}</td>

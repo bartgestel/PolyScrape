@@ -4,11 +4,24 @@
 import { config } from "./config";
 import { logger } from "./logger";
 
+// Global outbound rate limiter — Limitless sits behind Cloudflare and returns
+// HTTP 429 (error 1015) under bursty load. Every request start is spaced by
+// at least 1000/LIMITLESS_RPS ms, process-wide.
+let nextSlot = 0;
+async function rateGate(): Promise<void> {
+  const gap = 1000 / Math.max(1, config.limitlessRps);
+  const now = Date.now();
+  const wait = Math.max(0, nextSlot - now);
+  nextSlot = Math.max(now, nextSlot) + gap;
+  if (wait > 0) await sleep(wait);
+}
+
 export async function getJson<T = unknown>(url: string, attempt = 1): Promise<T> {
+  await rateGate();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20_000);
   try {
-    // A real UA is required — Polymarket's Cloudflare 403s the default Node/undici UA.
+    // Some CDNs 403 the default Node/undici UA; send a real one.
     const res = await fetch(url, {
       signal: ctrl.signal,
       headers: { accept: "application/json", "user-agent": "polyscrape/0.1 (+market-data collector)" },
@@ -20,8 +33,8 @@ export async function getJson<T = unknown>(url: string, attempt = 1): Promise<T>
     return (await res.json()) as T;
   } catch (err) {
     const retryable = (err as { retryable?: boolean }).retryable || (err as Error).name === "AbortError";
-    if (retryable && attempt < 4) {
-      const wait = 500 * 2 ** (attempt - 1);
+    if (retryable && attempt < 5) {
+      const wait = 1000 * 2 ** (attempt - 1); // 1s, 2s, 4s, 8s
       logger.debug("http retry", { url, attempt, wait });
       await sleep(wait);
       return getJson<T>(url, attempt + 1);

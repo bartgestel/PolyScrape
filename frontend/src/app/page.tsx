@@ -4,8 +4,7 @@ import { getOverview } from "@/lib/queries";
 export const dynamic = "force-dynamic";
 
 export default async function OverviewPage() {
-  const rows = await getOverview();
-  const total = rows.reduce((a, r) => a + r.tracked, 0);
+  const o = await getOverview();
 
   return (
     <>
@@ -13,17 +12,16 @@ export default async function OverviewPage() {
       <div className="cards">
         <div className="card">
           <div className="label">Markets tracked</div>
-          <div className="big">{total.toLocaleString()}</div>
+          <div className="big">{o.totalMarkets.toLocaleString()}</div>
         </div>
-        {rows.map((r) => (
-          <div className="card" key={r.category}>
-            <div className="label">{r.category}</div>
-            <div className="big">{r.tracked.toLocaleString()}</div>
-            <div className="muted">
-              {r.resolved.toLocaleString()} resolved &middot; {r.pending.toLocaleString()} pending
-            </div>
-          </div>
-        ))}
+        <div className="card">
+          <div className="label">Resolved</div>
+          <div className="big">{o.resolved.toLocaleString()}</div>
+        </div>
+        <div className="card">
+          <div className="label">Pending</div>
+          <div className="big">{o.pending.toLocaleString()}</div>
+        </div>
       </div>
 
       <h2>By category</h2>
@@ -38,19 +36,22 @@ export default async function OverviewPage() {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.category}>
-              <td>{r.category}</td>
-              <td className="num">{r.tracked.toLocaleString()}</td>
-              <td className="num">{r.resolved.toLocaleString()}</td>
-              <td className="num">{r.pending.toLocaleString()}</td>
+          {o.byCategory.map((c) => (
+            <tr key={c.category}>
+              <td>{c.category}</td>
+              <td className="num">{c.tracked.toLocaleString()}</td>
+              <td className="num">{c.resolved.toLocaleString()}</td>
+              <td className="num">{(c.tracked - c.resolved).toLocaleString()}</td>
               <td>
-                <Link href={`/markets?category=${r.category}`}>open →</Link>
+                <Link href={`/markets?category=${encodeURIComponent(c.category)}`}>open →</Link>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <p className="muted" style={{ marginTop: 12 }}>
+        A market can belong to several categories, so category rows sum to more than the total.
+      </p>
     </>
   );
 }

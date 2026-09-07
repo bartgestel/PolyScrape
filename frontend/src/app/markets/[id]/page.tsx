@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import PriceChart from "@/components/PriceChart";
 import { getMarketDetail } from "@/lib/queries";
+import { polymarketUrl } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,16 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
           )}
           <div>Resolves at</div><div>{fmt(market.resolves_at)}</div>
           <div>Snapshots</div><div>{snapshots.length}</div>
+          <div>Polymarket</div>
+          <div>
+            {polymarketUrl(market.event_slug) ? (
+              <a href={polymarketUrl(market.event_slug)!} target="_blank" rel="noreferrer">
+                {polymarketUrl(market.event_slug)}
+              </a>
+            ) : (
+              "—"
+            )}
+          </div>
           <div>market_id</div><div className="muted">{market.market_id}</div>
         </div>
       </div>

@@ -72,7 +72,7 @@ export const sports: Category = {
   marketsTable: "sports_markets",
   snapshotsTable: "sports_snapshots",
   resolutionsTable: "sports_resolutions",
-  marketExtraColumns: ["sport", "home_team", "away_team", "game_start_time"],
+  marketExtraColumns: ["sport", "home_team", "away_team", "game_start_time", "event_slug"],
   snapshotExtraColumns: ["minutes_to_game_start"],
   resolutionExtraColumns: ["final_score"],
 
@@ -107,6 +107,7 @@ export const sports: Category = {
                   home_team: homeFirst ? outs[0] : outs[1],
                   away_team: homeFirst ? outs[1] : outs[0],
                   game_start_time: mk.gameStartTime,
+                  event_slug: ev.slug ?? mk.slug ?? null,
                 },
               });
             }
@@ -155,6 +156,7 @@ export const weather: Category = {
   resolutionsTable: "weather_resolutions",
   marketExtraColumns: [
     "location", "metric", "threshold", "measurement_window_start", "measurement_window_end",
+    "event_slug",
   ],
   snapshotExtraColumns: [],
   resolutionExtraColumns: ["actual_measured_value"],
@@ -176,6 +178,7 @@ export const weather: Category = {
             threshold: parseThreshold(mk.question),
             measurement_window_start: ev.startDate ?? null,
             measurement_window_end: mk.endDate ?? ev.endDate ?? null,
+            event_slug: ev.slug ?? mk.slug ?? null,
           },
         });
       }

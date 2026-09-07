@@ -4,6 +4,10 @@ export function isCategory(v: string | null | undefined): v is Category {
   return v === "sports" || v === "weather";
 }
 
+export function polymarketUrl(eventSlug: string | null | undefined): string | null {
+  return eventSlug ? `https://polymarket.com/event/${eventSlug}` : null;
+}
+
 export interface OverviewRow {
   category: Category;
   tracked: number;
@@ -14,6 +18,7 @@ export interface OverviewRow {
 export interface MarketRow {
   market_id: string;
   question: string;
+  event_slug: string | null;
   resolves_at: string | null;
   last_price: number | null;
   last_ts: string | null;

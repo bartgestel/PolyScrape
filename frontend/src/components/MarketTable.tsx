@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { Category, MarketRow } from "@/lib/types";
+import { polymarketUrl, type Category, type MarketRow } from "@/lib/types";
 
 type SortKey = "question" | "group" | "resolves_at" | "last_price" | "status";
 
@@ -94,6 +94,7 @@ export default function MarketTable({ category, rows }: { category: Category; ro
             {th("resolves_at", "Resolves")}
             {th("last_price", "Last P(yes)", "num")}
             {th("status", "Status")}
+            <th className="no-sort">PM</th>
           </tr>
         </thead>
         <tbody>
@@ -111,6 +112,15 @@ export default function MarketTable({ category, rows }: { category: Category; ro
                   <span className="pill resolved">{r.outcome}</span>
                 ) : (
                   <span className="pill pending">pending</span>
+                )}
+              </td>
+              <td>
+                {polymarketUrl(r.event_slug) ? (
+                  <a href={polymarketUrl(r.event_slug)!} target="_blank" rel="noreferrer" title="Open on Polymarket">
+                    ↗
+                  </a>
+                ) : (
+                  <span className="muted">—</span>
                 )}
               </td>
             </tr>

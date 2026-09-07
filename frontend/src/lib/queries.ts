@@ -32,7 +32,7 @@ export async function getOverview(): Promise<OverviewRow[]> {
 
 const MARKETS_SQL: Record<Category, string> = {
   sports: `
-    SELECT m.market_id, m.question, m.resolves_at, m.sport, m.home_team, m.away_team, m.game_start_time,
+    SELECT m.market_id, m.question, m.event_slug, m.resolves_at, m.sport, m.home_team, m.away_team, m.game_start_time,
            s.price_yes AS last_price, s.ts AS last_ts,
            r.outcome, r.resolved_at
     FROM sports_markets m
@@ -44,7 +44,7 @@ const MARKETS_SQL: Record<Category, string> = {
     ORDER BY m.resolves_at DESC NULLS LAST
   `,
   weather: `
-    SELECT m.market_id, m.question, m.resolves_at, m.location, m.metric, m.threshold,
+    SELECT m.market_id, m.question, m.event_slug, m.resolves_at, m.location, m.metric, m.threshold,
            s.price_yes AS last_price, s.ts AS last_ts,
            r.outcome, r.resolved_at
     FROM weather_markets m
@@ -115,10 +115,10 @@ export async function getMarketDetail(marketId: string): Promise<MarketDetail | 
 
   const [market] = await q<MarketRow>(
     category === "sports"
-      ? `SELECT market_id, question, resolves_at, sport, home_team, away_team, game_start_time,
+      ? `SELECT market_id, question, event_slug, resolves_at, sport, home_team, away_team, game_start_time,
                 NULL::numeric AS last_price, NULL::timestamptz AS last_ts, NULL::text AS outcome, NULL::timestamptz AS resolved_at
          FROM sports_markets WHERE market_id = $1`
-      : `SELECT market_id, question, resolves_at, location, metric, threshold,
+      : `SELECT market_id, question, event_slug, resolves_at, location, metric, threshold,
                 NULL::numeric AS last_price, NULL::timestamptz AS last_ts, NULL::text AS outcome, NULL::timestamptz AS resolved_at
          FROM weather_markets WHERE market_id = $1`,
     [marketId],

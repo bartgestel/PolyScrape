@@ -56,7 +56,8 @@ export async function getCategories(): Promise<string[]> {
 export async function getMarkets(category: string | null): Promise<MarketRow[]> {
   const rows = await q<MarketRow & { last_price: string | null }>(
     `
-    SELECT m.slug, m.title, m.categories, m.market_type, m.group_slug, m.expiration, m.first_seen,
+    SELECT m.slug, m.title, m.categories, m.market_type, m.group_slug, m.stable_slug,
+           m.expiration, m.first_seen,
            s.price_yes AS last_price, s.ts AS last_ts,
            r.winning_outcome, r.winning_outcome_index, r.resolved_at
     FROM markets m
@@ -100,7 +101,7 @@ export async function getMarketSnapshots(slug: string): Promise<Snapshot[] | nul
 
 export async function getMarketDetail(slug: string): Promise<MarketDetail | null> {
   const [market] = await q<MarketDetail["market"]>(
-    `SELECT slug, title, categories, market_type, trade_type, group_slug,
+    `SELECT slug, title, categories, market_type, trade_type, group_slug, stable_slug,
             condition_id, source_created_at, expiration, first_seen,
             NULL::numeric AS last_price, NULL::timestamptz AS last_ts,
             NULL::text AS winning_outcome, NULL::int AS winning_outcome_index, NULL::timestamptz AS resolved_at

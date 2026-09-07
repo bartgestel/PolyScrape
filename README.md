@@ -20,7 +20,12 @@ everything in Postgres. No trading, no auth, no wallet keys.
   flattens group / NegRisk markets into their child binary markets, and upserts
   every market whose expiration is at least `MIN_MARKET_MINUTES` away. The
   market's own `categories` array (e.g. `{Daily,Bitcoin}`) is stored for
-  filtering; a market can be in several categories.
+  filtering; a market can be in several categories. The **snapshot** job runs the
+  same upsert every cycle, so recurring markets (hourly/daily crypto series that
+  open the moment the previous one resolves) are tracked within one snapshot
+  interval rather than waiting for the 3-hourly discovery sweep.  Recurring
+  markets carry a timestamp-free `stable_slug` (`btc-daily-price`) linking the
+  series.
 - **Snapshot** re-fetches `GET /markets/active` once per cycle (~30 requests) for
   `price_yes` / `price_no` / `volume` across the whole tracked set, then pulls the
   order book (`spread`, `midpoint`, `best_bid`/`best_ask`, `book_depth` in USDC)
@@ -152,7 +157,8 @@ Dockerfile, no shared code with the collector, `pg` pool pinned to
   table (text, category, resolved state); row → detail; `↗` opens the market on
   Limitless. Multi-outcome (group / NegRisk) markets — soccer 3-ways, "winner"
   markets, dated "by …?" markets — collapse to one expandable row per event
-  showing the favourite; expand to see each child leg.
+  showing the favourite. Recurring series (hourly/daily crypto) collapse to one
+  row showing the live market; expand for the resolved history.
 - **Market detail** (`/markets/<slug>`) — `price_yes` line chart over the snapshot
   history; if resolved, a marker at the resolution time plus the winning outcome
   next to the final market price. Spread + volume in a companion chart.
@@ -198,7 +204,7 @@ src/
   collector.ts     discovery / bulk snapshot / resolution
   health.ts        /health endpoint
   index.ts         migrate, then three setInterval loops
-migrations/003_limitless.sql   current schema (001/002 are the retired Polymarket schema)
+migrations/     001/002 retired Polymarket schema; 003 Limitless schema; 004/005 indexes + stable_slug
 
 frontend/          read-only Next.js viewer (own package.json / Dockerfile)
   src/lib/         pg pool (read-only) + all SQL + shared types

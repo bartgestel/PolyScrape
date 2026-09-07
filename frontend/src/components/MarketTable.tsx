@@ -15,20 +15,21 @@ const childLabelOf = (t: string) => {
   const i = t.indexOf(" — ");
   return i === -1 ? t : t.slice(i + 3);
 };
+const expMs = (r: MarketRow) => (r.expiration ? Date.parse(r.expiration) : -Infinity);
 
 type Entry =
   | { kind: "single"; key: string; row: MarketRow }
   | {
-      kind: "group";
+      kind: "collapsed";
+      variant: "group" | "series";
       key: string;
-      groupSlug: string;
-      groupTitle: string;
-      children: MarketRow[];
+      title: string;
+      children: MarketRow[]; // groups: outcome order; series: newest expiration first
       categories: string[];
       expiration: string | null;
-      favorite: { label: string; price: number } | null;
-      resolved: boolean;
-      resolvedOutcome: string | null;
+      headline: { label: string | null; price: number } | null;
+      resolved: boolean; // group: any child resolved; series: all resolved
+      resolvedLabel: string | null;
     };
 
 export default function MarketTable({
@@ -53,35 +54,59 @@ export default function MarketTable({
     );
 
     const groups = new Map<string, MarketRow[]>();
+    const series = new Map<string, MarketRow[]>();
     const singles: MarketRow[] = [];
     for (const r of matched) {
-      if (!r.group_slug) {
+      const bucket = r.group_slug ? groups : r.stable_slug ? series : null;
+      if (!bucket) {
         singles.push(r);
         continue;
       }
-      const g = groups.get(r.group_slug);
-      if (g) g.push(r);
-      else groups.set(r.group_slug, [r]);
+      const key = (r.group_slug ?? r.stable_slug) as string;
+      const arr = bucket.get(key);
+      if (arr) arr.push(r);
+      else bucket.set(key, [r]);
     }
 
     const list: Entry[] = singles.map((row) => ({ kind: "single", key: row.slug, row }));
-    for (const [groupSlug, children] of groups) {
+
+    for (const [key, children] of groups) {
       const fav = children
         .filter((c) => c.last_price != null)
         .sort((a, b) => (b.last_price as number) - (a.last_price as number))[0];
-      // The child that resolved Yes is the event's actual outcome.
       const won = children.find((c) => c.winning_outcome_index === 0);
       list.push({
-        kind: "group",
-        key: groupSlug,
-        groupSlug,
-        groupTitle: groupTitleOf(children[0].title),
+        kind: "collapsed",
+        variant: "group",
+        key,
+        title: groupTitleOf(children[0].title),
         children,
         categories: children[0].categories,
         expiration: children[0].expiration,
-        favorite: fav ? { label: childLabelOf(fav.title), price: fav.last_price as number } : null,
+        headline: fav ? { label: childLabelOf(fav.title), price: fav.last_price as number } : null,
         resolved: children.some((c) => c.winning_outcome),
-        resolvedOutcome: won ? childLabelOf(won.title) : null,
+        resolvedLabel: won ? childLabelOf(won.title) : null,
+      });
+    }
+
+    for (const [key, all] of series) {
+      if (all.length === 1) {
+        list.push({ kind: "single", key: all[0].slug, row: all[0] });
+        continue;
+      }
+      const children = [...all].sort((a, b) => expMs(b) - expMs(a));
+      const latest = children[0];
+      list.push({
+        kind: "collapsed",
+        variant: "series",
+        key,
+        title: latest.title,
+        children,
+        categories: latest.categories,
+        expiration: latest.expiration,
+        headline: latest.last_price != null ? { label: null, price: latest.last_price } : null,
+        resolved: children.every((c) => c.winning_outcome),
+        resolvedLabel: null,
       });
     }
 
@@ -97,14 +122,14 @@ export default function MarketTable({
       if (e.kind === "single") {
         switch (sort) {
           case "title": return e.row.title.toLowerCase();
-          case "expiration": return e.row.expiration ? Date.parse(e.row.expiration) : -Infinity;
+          case "expiration": return expMs(e.row);
           case "last_price": return e.row.last_price ?? -Infinity;
         }
       } else {
         switch (sort) {
-          case "title": return e.groupTitle.toLowerCase();
+          case "title": return e.title.toLowerCase();
           case "expiration": return e.expiration ? Date.parse(e.expiration) : -Infinity;
-          case "last_price": return e.favorite?.price ?? -Infinity;
+          case "last_price": return e.headline?.price ?? -Infinity;
         }
       }
       return 0;
@@ -127,8 +152,11 @@ export default function MarketTable({
     </th>
   );
 
-  const statusPill = (label: string | null) =>
-    label ? <span className="pill resolved">{label}</span> : <span className="pill pending">pending</span>;
+  const pill = (label: string, kind: "resolved" | "pending" = "resolved") => (
+    <span className={`pill ${kind}`}>{label}</span>
+  );
+  const singleStatus = (r: MarketRow) =>
+    r.winning_outcome ? pill(r.winning_outcome) : pill("pending", "pending");
 
   return (
     <>
@@ -166,55 +194,85 @@ export default function MarketTable({
           </tr>
         </thead>
         <tbody>
-          {entries.map((e) =>
-            e.kind === "single" ? (
-              <tr key={e.key}>
-                <td><Link href={`/markets/${encodeURIComponent(e.row.slug)}`}>{e.row.title}</Link></td>
-                <td className="muted">{e.row.categories.join(", ") || "—"}</td>
-                <td>{fmtDate(e.row.expiration)}</td>
-                <td className="num">{fmtPrice(e.row.last_price)}</td>
-                <td>{statusPill(e.row.winning_outcome)}</td>
-                <td><a href={limitlessUrl(e.row.slug)!} target="_blank" rel="noreferrer" title="Open on Limitless">↗</a></td>
-              </tr>
-            ) : (
+          {entries.map((e) => {
+            if (e.kind === "single") {
+              return (
+                <tr key={e.key}>
+                  <td><Link href={`/markets/${encodeURIComponent(e.row.slug)}`}>{e.row.title}</Link></td>
+                  <td className="muted">{e.row.categories.join(", ") || "—"}</td>
+                  <td>{fmtDate(e.row.expiration)}</td>
+                  <td className="num">{fmtPrice(e.row.last_price)}</td>
+                  <td>{singleStatus(e.row)}</td>
+                  <td><a href={limitlessUrl(e.row.slug)!} target="_blank" rel="noreferrer" title="Open on Limitless">↗</a></td>
+                </tr>
+              );
+            }
+            const noun = e.variant === "group" ? "outcomes" : "markets";
+            const headline =
+              e.headline == null
+                ? "—"
+                : e.headline.label
+                  ? `${e.headline.label} ${e.headline.price.toFixed(3)}`
+                  : e.headline.price.toFixed(3);
+            const parentStatus =
+              e.variant === "group"
+                ? e.resolvedLabel
+                  ? pill(e.resolvedLabel)
+                  : e.resolved
+                    ? pill("resolved")
+                    : pill("pending", "pending")
+                : e.resolved
+                  ? pill("all resolved")
+                  : pill("live", "pending");
+            const lmSlug = e.children[0].slug;
+            return (
               <Fragment key={e.key}>
-                <tr className="group-row" onClick={() => setOpen((s) => {
-                  const n = new Set(s);
-                  n.has(e.key) ? n.delete(e.key) : n.add(e.key);
-                  return n;
-                })}>
+                <tr
+                  className="group-row"
+                  onClick={() =>
+                    setOpen((s) => {
+                      const n = new Set(s);
+                      n.has(e.key) ? n.delete(e.key) : n.add(e.key);
+                      return n;
+                    })
+                  }
+                >
                   <td>
-                    <span className="caret">{open.has(e.key) ? "▾" : "▸"}</span> {e.groupTitle}{" "}
-                    <span className="muted">({e.children.length} outcomes)</span>
+                    <span className="caret">{open.has(e.key) ? "▾" : "▸"}</span> {e.title}{" "}
+                    <span className="muted">({e.children.length} {noun})</span>
                   </td>
                   <td className="muted">{e.categories.join(", ") || "—"}</td>
                   <td>{fmtDate(e.expiration)}</td>
-                  <td className="num">{e.favorite ? `${e.favorite.label} ${e.favorite.price.toFixed(3)}` : "—"}</td>
-                  <td>{statusPill(e.resolvedOutcome ?? (e.resolved ? "resolved" : null))}</td>
-                  <td><a href={limitlessUrl(e.groupSlug)!} target="_blank" rel="noreferrer" title="Open on Limitless" onClick={(ev) => ev.stopPropagation()}>↗</a></td>
+                  <td className="num">{headline}</td>
+                  <td>{parentStatus}</td>
+                  <td>
+                    <a href={limitlessUrl(lmSlug)!} target="_blank" rel="noreferrer" title="Open on Limitless" onClick={(ev) => ev.stopPropagation()}>↗</a>
+                  </td>
                 </tr>
                 {open.has(e.key) &&
                   e.children.map((c) => (
                     <tr key={c.slug} className="child-row">
-                      <td className="indent"><Link href={`/markets/${encodeURIComponent(c.slug)}`}>{childLabelOf(c.title)}</Link></td>
+                      <td className="indent">
+                        <Link href={`/markets/${encodeURIComponent(c.slug)}`}>
+                          {e.variant === "group" ? childLabelOf(c.title) : fmtDate(c.expiration)}
+                        </Link>
+                      </td>
                       <td />
                       <td />
                       <td className="num">{fmtPrice(c.last_price)}</td>
                       <td>
-                        {c.winning_outcome_index === 0 ? (
-                          <span className="pill resolved">won</span>
-                        ) : c.winning_outcome ? (
-                          <span className="pill pending">lost</span>
+                        {e.variant === "group" ? (
+                          c.winning_outcome_index === 0 ? pill("won") : c.winning_outcome ? pill("lost", "pending") : pill("—", "pending")
                         ) : (
-                          <span className="pill pending">—</span>
+                          singleStatus(c)
                         )}
                       </td>
                       <td><a href={limitlessUrl(c.slug)!} target="_blank" rel="noreferrer">↗</a></td>
                     </tr>
                   ))}
               </Fragment>
-            ),
-          )}
+            );
+          })}
         </tbody>
       </table>
     </>

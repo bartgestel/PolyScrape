@@ -15,6 +15,7 @@ export interface MarketRow {
   categories: string[];
   market_type: string | null;
   group_slug: string | null;
+  stable_slug: string | null;
   expiration: string | null;
   first_seen: string | null;
   last_price: number | null;

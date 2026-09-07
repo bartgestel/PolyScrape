@@ -38,49 +38,48 @@ async function activeBySlug(): Promise<Map<string, FlatMarket>> {
 
 // --- Discovery -------------------------------------------------------------
 
-export async function runDiscovery(): Promise<number> {
-  const map = await activeBySlug();
+const MARKET_COLS = [
+  "slug", "market_id", "condition_id", "title", "categories", "market_type",
+  "trade_type", "group_slug", "stable_slug", "yes_token_id", "no_token_id",
+  "source_created_at", "start_at", "expiration",
+];
+
+/** Upsert every currently-active market that still has >= MIN_MARKET_MINUTES to run. */
+export async function upsertActive(flat: FlatMarket[]): Promise<number> {
   const now = Date.now();
   const minMs = config.minMarketMinutes * 60_000;
-
-  const rows = [...map.values()]
+  const rows = flat
     .filter(({ m }) => {
       const exp = expirationMs(m);
       return exp == null || exp - now >= minMs;
     })
     .map(({ m, groupSlug, title }) => [
-      m.slug,
-      m.id ?? null,
-      m.conditionId ?? null,
-      title,
-      m.categories ?? [],
+      m.slug, m.id ?? null, m.conditionId ?? null, title, m.categories ?? [],
       groupSlug ? "group-child" : (m.marketType ?? "single"),
-      m.tradeType ?? null,
-      groupSlug,
-      m.tokens?.yes ?? null,
-      m.tokens?.no ?? null,
+      m.tradeType ?? null, groupSlug, m.stableSlug ?? null,
+      m.tokens?.yes ?? null, m.tokens?.no ?? null,
       m.createdAt ? new Date(m.createdAt) : null,
       m.startAt ? new Date(m.startAt) : null,
       toTs(expirationMs(m)),
     ]);
   if (rows.length === 0) return 0;
 
-  const cols = [
-    "slug", "market_id", "condition_id", "title", "categories", "market_type",
-    "trade_type", "group_slug", "yes_token_id", "no_token_id",
-    "source_created_at", "start_at", "expiration",
-  ];
-  const updates = cols.filter((c) => c !== "slug").map((c) => `${c} = EXCLUDED.${c}`).join(", ");
+  const updates = MARKET_COLS.filter((c) => c !== "slug").map((c) => `${c} = EXCLUDED.${c}`).join(", ");
   for (const batch of chunk(rows, 400)) {
     await query(
-      `INSERT INTO markets (${cols.join(",")})
-       VALUES ${placeholders(batch.length, cols.length)}
+      `INSERT INTO markets (${MARKET_COLS.join(",")})
+       VALUES ${placeholders(batch.length, MARKET_COLS.length)}
        ON CONFLICT (slug) DO UPDATE SET ${updates}`,
       batch.flat(),
     );
   }
-  logger.info("discovery upserted", { markets: rows.length });
   return rows.length;
+}
+
+export async function runDiscovery(): Promise<number> {
+  const n = await upsertActive([...(await activeBySlug()).values()]);
+  logger.info("discovery upserted", { markets: n });
+  return n;
 }
 
 // --- shared ------------------------------------------------------------
@@ -141,7 +140,11 @@ function bookMetrics(book: OrderBook | null) {
 // --- Snapshot ------------------------------------------------------------
 
 export async function runSnapshot(): Promise<number> {
-  const [tracked, map] = await Promise.all([trackedMarkets(false), activeBySlug()]);
+  // Pick up markets created since the last cycle (recurring 5-min/hourly/daily
+  // crypto markets churn faster than the discovery interval) before snapshotting.
+  const map = await activeBySlug();
+  await upsertActive([...map.values()]);
+  const tracked = await trackedMarkets(false);
   if (tracked.length === 0) return 0;
   const ts = new Date();
 

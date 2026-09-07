@@ -15,7 +15,7 @@ export interface LimitlessToken {
 export interface LimitlessMarket {
   id?: number;
   slug: string;
-  stableSlug?: string;
+  stableSlug?: string | null;
   title: string;
   conditionId?: string;
   categories?: string[];

@@ -78,14 +78,16 @@ export async function getMarkets(category: string | null): Promise<MarketRow[]> 
 export async function getMarketSnapshots(slug: string): Promise<Snapshot[] | null> {
   const exists = await q(`SELECT 1 FROM markets WHERE slug = $1`, [slug]);
   if (exists.length === 0) return null;
-  const rows = await q<Snapshot>(
+  const rows = await q<Record<string, unknown>>(
     `SELECT ts, price_yes, price_no, midpoint, best_bid, best_ask, spread,
-            last_trade_price, volume, book_depth, minutes_to_expiration
+            last_trade_price, volume, book_depth, minutes_to_expiration,
+            depth_1c, depth_2c, depth_5c, buy_yes_price, sell_yes_price, underlying_price,
+            book_bids, book_asks
      FROM snapshots WHERE slug = $1 ORDER BY ts`,
     [slug],
   );
   return rows.map((s) => ({
-    ts: s.ts,
+    ts: s.ts as string,
     price_yes: num(s.price_yes),
     price_no: num(s.price_no),
     midpoint: num(s.midpoint),
@@ -96,6 +98,31 @@ export async function getMarketSnapshots(slug: string): Promise<Snapshot[] | nul
     volume: num(s.volume),
     book_depth: num(s.book_depth),
     minutes_to_expiration: s.minutes_to_expiration == null ? null : Number(s.minutes_to_expiration),
+    depth_1c: num(s.depth_1c),
+    depth_2c: num(s.depth_2c),
+    depth_5c: num(s.depth_5c),
+    buy_yes_price: num(s.buy_yes_price),
+    sell_yes_price: num(s.sell_yes_price),
+    underlying_price: num(s.underlying_price),
+    book_bids: (s.book_bids as Snapshot["book_bids"]) ?? null,
+    book_asks: (s.book_asks as Snapshot["book_asks"]) ?? null,
+  }));
+}
+
+export async function getMarketTrades(slug: string, limit = 100): Promise<import("./types").Trade[]> {
+  const rows = await q<Record<string, unknown>>(
+    `SELECT created_at, outcome, side, price, size, collateral, taker
+     FROM trades WHERE slug = $1 ORDER BY created_at DESC LIMIT $2`,
+    [slug, limit],
+  );
+  return rows.map((t) => ({
+    created_at: t.created_at as string,
+    outcome: (t.outcome as string) ?? null,
+    side: (t.side as string) ?? null,
+    price: num(t.price),
+    size: num(t.size),
+    collateral: num(t.collateral),
+    taker: (t.taker as string) ?? null,
   }));
 }
 
@@ -103,20 +130,27 @@ export async function getMarketDetail(slug: string): Promise<MarketDetail | null
   const [market] = await q<MarketDetail["market"]>(
     `SELECT slug, title, categories, market_type, trade_type, group_slug, stable_slug,
             condition_id, source_created_at, expiration, first_seen,
+            description, creator_name, automation_type, frequency, is_rewardable,
+            oracle_ticker, oracle_asset_type, oracle_source, strike_price,
+            max_spread, daily_reward, rebate_rate, creator_fee_pct, min_size,
             NULL::numeric AS last_price, NULL::timestamptz AS last_ts,
             NULL::text AS winning_outcome, NULL::int AS winning_outcome_index, NULL::timestamptz AS resolved_at
      FROM markets WHERE slug = $1`,
     [slug],
   );
   if (!market) return null;
+  const mm = market as unknown as Record<string, unknown>;
+  for (const k of ["strike_price", "max_spread", "daily_reward", "rebate_rate", "creator_fee_pct", "min_size"]) {
+    mm[k] = num(mm[k]);
+  }
 
-  const snapshots = (await getMarketSnapshots(slug)) ?? [];
+  const [snapshots, trades] = await Promise.all([getMarketSnapshots(slug), getMarketTrades(slug)]);
   const [resolution] = await q<MarketDetail["resolution"] & object>(
     `SELECT resolved_at, winning_outcome, winning_outcome_index, status
      FROM resolutions WHERE slug = $1`,
     [slug],
   );
-  return { market, snapshots, resolution: resolution ?? null };
+  return { market, snapshots: snapshots ?? [], trades, resolution: resolution ?? null };
 }
 
 // ---------- calibration ----------

@@ -1,7 +1,7 @@
 // Entrypoint: run migrations, then three interval loops (discovery, snapshot,
 // resolution) against Limitless Exchange. setInterval, no job queue.
 
-import { runDiscovery, runResolution, runSnapshot } from "./collector";
+import { runDiscovery, runResolution, runRetention, runSnapshot } from "./collector";
 import { config } from "./config";
 import { pool } from "./db";
 import { runMigrations } from "./db/migrate";
@@ -51,6 +51,9 @@ async function main() {
   });
 
   schedule("resolution", config.resolutionCheckIntervalMinutes * MIN, () => runResolution().then(() => undefined));
+
+  // Retention sweep — does not run on boot (large first pass), only on interval.
+  schedule("retention", config.retentionIntervalHours * 60 * MIN, () => runRetention().then(() => undefined), false);
 }
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

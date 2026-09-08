@@ -32,8 +32,38 @@ export interface LimitlessMarket {
   volume?: string | number;
   volumeFormatted?: string;
   winningOutcomeIndex?: number | null;
+  // metadata (present in the /markets/active payload)
+  description?: string;
+  automationType?: string;
+  isRewardable?: boolean;
+  tags?: string[];
+  creator?: { name?: string; username?: string; address?: string };
+  priceOracleMetadata?: { ticker?: string; assetType?: string; chartSource?: string };
+  properties?: { propertyKeySlug: string; value: string[] }[];
+  settings?: {
+    minSize?: string | number;
+    maxSpread?: string | number;
+    dailyReward?: string | number;
+    rebateRate?: string | number;
+    creatorFeePct?: string | number;
+  };
+  tradePrices?: {
+    buy?: { market?: number[]; limit?: number[] };
+    sell?: { market?: number[]; limit?: number[] };
+  };
   // group only:
   markets?: LimitlessMarket[];
+}
+
+export interface MarketEvent {
+  createdAt: string;
+  side: number; // 0 = BUY, 1 = SELL (taker)
+  price: number;
+  matchedSize: string; // raw 6-dec position tokens
+  takerAmount: string; // raw 6-dec collateral (USDC)
+  tokenId?: string;
+  txHash?: string;
+  profile?: { account?: string };
 }
 
 export interface ActivePage {
@@ -79,6 +109,37 @@ export async function fetchOrderBook(slug: string): Promise<OrderBook | null> {
   } catch {
     return null;
   }
+}
+
+/** Most recent public MINED CLOB trades for a market (newest first). */
+export async function fetchMarketEvents(slug: string): Promise<MarketEvent[]> {
+  try {
+    const r = await getJson<{ events?: MarketEvent[] }>(
+      api(`/markets/${encodeURIComponent(slug)}/events?page=1&limit=100`),
+    );
+    return r.events ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** "...captured ... was $79,713.44" → 79713.44 */
+export function parseStrike(description: string | undefined): number | null {
+  if (!description) return null;
+  const m = description.match(/(?:captured|price to beat)[^$]{0,120}\$([0-9][0-9,]*(?:\.[0-9]+)?)/i);
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** frequency from tags/properties: daily | hourly | weekly | ... */
+export function marketFrequency(m: LimitlessMarket): string | null {
+  const dur = m.properties?.find((p) => p.propertyKeySlug === "duration")?.value?.[0];
+  if (dur) return dur;
+  const tag = (m.tags ?? []).map((t) => t.toLowerCase()).find((t) =>
+    ["daily", "hourly", "weekly", "monthly", "minutely"].includes(t),
+  );
+  return tag ?? null;
 }
 
 export function expirationMs(m: LimitlessMarket): number | null {

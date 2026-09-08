@@ -27,6 +27,17 @@ services:
       RESOLUTION_CHECK_INTERVAL_MINUTES: "20"
       MIN_MARKET_MINUTES: "30"
       ORDERBOOK_LIMIT: "100"
+      UNDERLYING_ENABLED: "true"
+      # Equity underlying — set TIINGO_API_KEY in your shell or a .env file next to
+      # this compose file; blank = equities skipped.
+      TIINGO_API_KEY: "${TIINGO_API_KEY:-}"
+      EQUITY_STALE_MINUTES: "20"
+      SLIPPAGE_ORDER_SIZES_USDC: "50,250,1000"
+      GAS_TRACKING_ENABLED: "true"
+      RETENTION_INTERVAL_HOURS: "24"
+      RETENTION_FULL_DAYS: "7"
+      RETENTION_COARSE_MINUTES: "15"
+      RETENTION_DROP_DAYS: "0"
       LIMITLESS_RPS: "6"
       LOG_LEVEL: info
       HEALTH_PORT: "8080"

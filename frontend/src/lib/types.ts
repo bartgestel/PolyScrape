@@ -25,6 +25,11 @@ export interface MarketRow {
   resolved_at: string | null;
 }
 
+export interface BookLevel {
+  price: number;
+  size: number;
+}
+
 export interface Snapshot {
   ts: string;
   price_yes: number | null;
@@ -37,6 +42,24 @@ export interface Snapshot {
   volume: number | null;
   book_depth: number | null;
   minutes_to_expiration: number | null;
+  depth_1c: number | null;
+  depth_2c: number | null;
+  depth_5c: number | null;
+  buy_yes_price: number | null;
+  sell_yes_price: number | null;
+  underlying_price: number | null;
+  book_bids: BookLevel[] | null;
+  book_asks: BookLevel[] | null;
+}
+
+export interface Trade {
+  created_at: string;
+  outcome: string | null;
+  side: string | null;
+  price: number | null;
+  size: number | null;
+  collateral: number | null;
+  taker: string | null;
 }
 
 export interface MarketDetail {
@@ -45,8 +68,23 @@ export interface MarketDetail {
     trade_type: string | null;
     group_slug: string | null;
     source_created_at: string | null;
+    description: string | null;
+    creator_name: string | null;
+    automation_type: string | null;
+    frequency: string | null;
+    is_rewardable: boolean | null;
+    oracle_ticker: string | null;
+    oracle_asset_type: string | null;
+    oracle_source: string | null;
+    strike_price: number | null;
+    max_spread: number | null;
+    daily_reward: number | null;
+    rebate_rate: number | null;
+    creator_fee_pct: number | null;
+    min_size: number | null;
   };
   snapshots: Snapshot[];
+  trades: Trade[];
   resolution: {
     resolved_at: string | null;
     winning_outcome: string | null;

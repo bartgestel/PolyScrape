@@ -12,8 +12,11 @@ everything in Postgres. No trading, no auth, no wallet keys.
 
 | Table | Rows |
 |---|---|
-| `markets` | one row per tracked binary market, keyed by Limitless `slug` |
-| `snapshots` | one row per market per snapshot cycle |
+| `markets` | one row per tracked binary market, keyed by Limitless `slug`. Includes metadata: `description`, `creator_*`, `oracle_ticker`/`oracle_asset_type`/`oracle_source`, `strike_price` (parsed from the description), `frequency`, `automation_type`, `is_rewardable`, `max_spread`/`daily_reward`/`rebate_rate`/`creator_fee_pct`/`min_size` |
+| `snapshots` | one row per market per snapshot cycle. Price/volume/midpoint/spread, plus top-10 `book_bids`/`book_asks` (JSONB), `depth_1c`/`depth_2c`/`depth_5c` (resting size in outcome tokens within N¢ of mid), `buy_yes_price`/`sell_yes_price` (effective market cost each way), `slippage` (JSONB: buy/sell fill-vs-midpoint for the configured order sizes), and `underlying_price` (reference spot for the market's oracle ticker) |
+| `trades` | public MINED CLOB fills — side, price, size, USDC, taker, outcome — polled for the order-book target set |
+| `underlying_prices` | reference spot (`ticker`, `ts`, `price`, `source`), one row per ticker per cycle — `coingecko` for crypto, `tiingo` for equities |
+| `gas_prices` | Base L2 gas price (`ts`, `gas_price_gwei`, `source`), one row per snapshot cycle. Informational — nothing reads it yet |
 | `resolutions` | one row per market once it resolves; collector then stops snapshotting it |
 
 - **Discovery** pages through `GET /markets/active` (all categories at once),
@@ -27,13 +30,18 @@ everything in Postgres. No trading, no auth, no wallet keys.
   markets carry a timestamp-free `stable_slug` (`btc-daily-price`) linking the
   series.
 - **Snapshot** re-fetches `GET /markets/active` once per cycle (~30 requests) for
-  `price_yes` / `price_no` / `volume` across the whole tracked set, then pulls the
-  order book (`spread`, `midpoint`, `best_bid`/`best_ask`, `book_depth` in USDC)
-  for the `ORDERBOOK_LIMIT` soonest-to-expire markets only. This keeps request
-  volume under the Limitless (Cloudflare) rate limit.
+  `price_yes` / `price_no` / `volume` / `buy_yes_price` / `sell_yes_price` across
+  the whole tracked set, then for the `ORDERBOOK_LIMIT` soonest-to-expire markets
+  only pulls the order book (`spread`, `midpoint`, `book_bids`/`book_asks`,
+  `depth_*`, `slippage`) and the trade tape. Once per cycle it also records one
+  Base gas reading and one batched underlying-spot fetch (CoinGecko for crypto
+  tickers, Tiingo for equity tickers). This keeps request volume under the
+  Limitless (Cloudflare) rate limit.
 - **Resolution** — a tracked market that has dropped out of the active list, or
   whose `winningOutcomeIndex` is set, is confirmed with a single
   `GET /markets/:slug` and recorded (`winning_outcome_index` 0 = Yes, 1 = No).
+- **Retention** — a periodic sweep thins the snapshot history of long-resolved
+  markets (see *Retention* below). It does not run on collector boot.
 
 Nothing is parsed out of titles — Limitless gives structured `categories`,
 `expirationTimestamp`, `tokens`, and `prices`, all stored as-is.
@@ -50,11 +58,49 @@ Copy `.env.example` to `.env` and adjust:
 | `DISCOVERY_INTERVAL_HOURS` | `3` | how often to rescan for new markets |
 | `RESOLUTION_CHECK_INTERVAL_MINUTES` | `20` | how often to sweep due markets for resolution |
 | `MIN_MARKET_MINUTES` | `30` | skip markets expiring within this many minutes of discovery (the 5-/15-min crypto churn). `0` tracks everything |
-| `ORDERBOOK_LIMIT` | `100` | order books fetched per snapshot cycle, soonest-to-expire first. `0` disables |
+| `ORDERBOOK_LIMIT` | `100` | order book + trade-tape polling per snapshot cycle, soonest-to-expire first. `0` disables |
+| `UNDERLYING_ENABLED` | `true` | collect crypto spot into `underlying_prices` (one CoinGecko request/cycle) |
+| `TIINGO_API_KEY` | _(blank)_ | Tiingo IEX key for equity underlying. Blank = skip equities. Free key from [tiingo.com](https://www.tiingo.com/) |
+| `EQUITY_STALE_MINUTES` | `20` | only store a Tiingo quote if its trade timestamp is fresher than this — skips writes while US markets are closed |
+| `SLIPPAGE_ORDER_SIZES_USDC` | `50,250,1000` | order sizes for the per-snapshot `slippage` estimate |
+| `GAS_TRACKING_ENABLED` | `true` | record one Base gas price per snapshot cycle into `gas_prices` |
+| `BASE_RPC_URL` | `https://mainnet.base.org` | RPC endpoint for the `eth_gasPrice` call |
+| `RETENTION_INTERVAL_HOURS` | `24` | how often the decimation sweep runs |
+| `RETENTION_FULL_DAYS` | `7` | keep full 2-min resolution until a market has been resolved this long |
+| `RETENTION_COARSE_MINUTES` | `15` | after that, thin to one collection cycle per this many minutes |
+| `RETENTION_DROP_DAYS` | `0` | `>0` also hard-deletes all snapshots for markets resolved longer ago than this; `0` = never |
 | `LIMITLESS_RPS` | `6` | process-wide cap on requests/sec to the API (Cloudflare 429s bursts) |
 | `HTTP_CONCURRENCY` | `4` | max in-flight requests |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 | `HEALTH_PORT` | `8080` | port for the internal `/health` endpoint |
+
+### Retention (downsampling)
+
+`snapshots` grows ~1M rows/day. A sweep (`runRetention`, scheduled every
+`RETENTION_INTERVAL_HOURS`, **not run on boot**) keeps this bounded:
+
+- Markets that are **pending** or **resolved within `RETENTION_FULL_DAYS`** keep
+  every 2-minute snapshot untouched.
+- For markets **resolved more than `RETENTION_FULL_DAYS` ago**, each
+  `RETENTION_COARSE_MINUTES` window is thinned to the single latest collection
+  cycle in it — a whole cycle is kept or dropped, so group-market sibling rows
+  stay aligned on `ts`.
+- `RETENTION_DROP_DAYS > 0` additionally removes *all* snapshots for markets
+  resolved longer ago than that.
+
+**Effect on queries:** for a market resolved more than `RETENTION_FULL_DAYS` ago,
+its snapshots are spaced ~`RETENTION_COARSE_MINUTES` apart, not 2 minutes.
+`getCalibration()` is unaffected — its match tolerance (±3h around the
+pre-resolution offset) is far wider than the coarse interval. Any ad-hoc query
+that needs sub-`RETENTION_COARSE_MINUTES` granularity on old resolved markets
+won't find it; set `RETENTION_FULL_DAYS` higher (more disk) if you need a longer
+full-resolution tail. `trades`, `underlying_prices`, and `gas_prices` are not
+touched by retention.
+
+If monthly volume eventually outgrows a single VPS, the next step is native
+monthly range-partitioning of `snapshots` so old partitions can be dropped
+instantly — deliberately not done yet (create-copy-swap migration, no payoff at
+current scale).
 
 ## Local development
 
@@ -92,6 +138,12 @@ git clone <this repo> && cd PolyScrape
 docker network create proxy-net        # once; shared with Nginx Proxy Manager
 docker compose up -d --build
 ```
+
+**Accounts / keys:** everything works with no keys except the **equity underlying
+feed**, which needs a free [Tiingo](https://www.tiingo.com/) API key (email
+signup) in `TIINGO_API_KEY`. Without it, `EQUITY`-oracle markets (AAPL, NVDA, SPY,
+…) still store their ticker but `underlying_price` stays null. Crypto underlying
+(CoinGecko) and Base gas (`eth_gasPrice` on the public RPC) need nothing.
 
 `docker-compose.yml` starts three services:
 
@@ -200,11 +252,17 @@ src/
   config.ts        env parsing
   logger.ts        JSON-to-stdout logging
   http.ts          fetch wrapper: UA, retry/backoff, global rate limiter, concurrency pool
-  limitless.ts     Limitless API client: active-markets pagination, market detail, order book, group flattening
-  collector.ts     discovery / bulk snapshot / resolution
+  limitless.ts     Limitless API client: active markets, market detail, order book, trade tape, group flattening
+  coingecko.ts     underlying crypto spot (batched, no key)
+  tiingo.ts        underlying equity spot (Tiingo IEX, batched, fresh-quote-only)
+  base.ts          Base L2 gas price (eth_gasPrice)
+  slippage.ts      order-book walk → market-order slippage vs midpoint (pure)
+  collector.ts     discovery / bulk snapshot (book, trades, slippage, underlying, gas, metadata) / resolution / retention
   health.ts        /health endpoint
-  index.ts         migrate, then three setInterval loops
-migrations/     001/002 retired Polymarket schema; 003 Limitless schema; 004/005 indexes + stable_slug
+  index.ts         migrate, then four setInterval loops (discovery, snapshot, resolution, retention)
+migrations/     001/002 retired Polymarket schema; 003 Limitless schema; 004/005 indexes + stable_slug;
+                006 book levels / trades / underlying / metadata; 007 retention index; 008 slippage;
+                009 gas_prices; 010 equity-underlying index
 
 frontend/          read-only Next.js viewer (own package.json / Dockerfile)
   src/lib/         pg pool (read-only) + all SQL + shared types

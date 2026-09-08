@@ -24,7 +24,10 @@ export default function PriceChart({ detail }: { detail: MarketDetail }) {
       midpoint: s.midpoint,
       spread: s.spread,
       volume: s.volume,
+      underlying: s.underlying_price,
     }));
+  const hasUnderlying = data.some((d) => d.underlying != null);
+  const strike = detail.market.strike_price;
 
   if (data.length === 0) return <p className="muted">No snapshots recorded yet for this market.</p>;
 
@@ -66,6 +69,27 @@ export default function PriceChart({ detail }: { detail: MarketDetail }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
+
+      {hasUnderlying && (
+        <>
+          <h2>
+            Underlying{detail.market.oracle_ticker ? ` (${detail.market.oracle_ticker})` : ""}
+            {strike != null ? ` — strike ${strike}` : ""}
+          </h2>
+          <div className="chart-wrap small">
+            <ResponsiveContainer>
+              <LineChart data={data} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+                <CartesianGrid stroke="#2a2f3a" />
+                <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} tickFormatter={fmtTs} stroke="#9aa4b2" fontSize={11} />
+                <YAxis domain={["auto", "auto"]} stroke="#9aa4b2" fontSize={11} width={60} />
+                <Tooltip labelFormatter={(t) => fmtTs(Number(t))} contentStyle={{ background: "#171a21", border: "1px solid #2a2f3a" }} />
+                <Line type="monotone" dataKey="underlying" stroke="#4f9cf9" dot={false} strokeWidth={2} name="spot" isAnimationActive={false} />
+                {strike != null && <ReferenceLine y={strike} stroke="#6b7280" strokeDasharray="5 4" label={{ value: "strike", fill: "#9aa4b2", fontSize: 11 }} />}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
 
       <h2>Spread &amp; volume</h2>
       <div className="chart-wrap small">
